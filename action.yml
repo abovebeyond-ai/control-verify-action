@@ -1,0 +1,51 @@
+name: Proof-of-Control, the far end
+description: Refuse to act on a dispatch or merge a pull request unless the evidence holds against the DID log and the public mirror. Nothing here needs a secret.
+inputs:
+  mode:
+    description: dispatch (before the runner acts) or pull (as a merge check)
+    required: true
+  evidence:
+    description: the signed record the dispatch carried, base64url JSON (dispatch)
+    required: false
+  capability:
+    description: the principal's capability the dispatch carried (dispatch)
+    required: false
+  body:
+    description: the pull request body (pull); defaults to the event's pull request body
+    required: false
+  did:
+    description: the DID document that names the gateway's and the principal's keys
+    required: false
+    default: https://abovebeyond.ai/.well-known/did.json
+  version:
+    description: the control release whose relying command runs
+    required: false
+    default: v0.9.0
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+    - shell: bash
+      run: go install github.com/abovebeyond-ai/control/cmd/relying@${{ inputs.version }}
+    - shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        EVIDENCE: ${{ inputs.evidence }}
+        CAPABILITY: ${{ inputs.capability }}
+        BODY: ${{ inputs.body || github.event.pull_request.body }}
+        DID: ${{ inputs.did }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in
+          dispatch)
+            [ -n "$EVIDENCE" ] || { echo "REFUSE the dispatch carried no evidence"; exit 1; }
+            "$(go env GOPATH)/bin/relying" dispatch --evidence "$EVIDENCE" --capability "$CAPABILITY" --repository "$GITHUB_REPOSITORY" --did "$DID"
+            ;;
+          pull)
+            printf '%s' "$BODY" > "$RUNNER_TEMP/pr-body.txt"
+            "$(go env GOPATH)/bin/relying" pull --body "$RUNNER_TEMP/pr-body.txt" --repository "$GITHUB_REPOSITORY" --did "$DID"
+            ;;
+          *) echo "mode must be dispatch or pull"; exit 2 ;;
+        esac
