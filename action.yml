@@ -38,14 +38,50 @@ runs:
         DID: ${{ inputs.did }}
       run: |
         set -euo pipefail
+        relying="$(go env GOPATH)/bin/relying"
+
+        # A document that cannot be fetched is not a record that does not hold,
+        # and the check said the opposite. On 21 September 2026 two runs in a
+        # row went red on ShaneDeconinck/naviskore while nothing was wrong with
+        # the evidence: once the host served a certificate for *.netlify.app,
+        # once the connection dropped ("REFUSE Get ...: EOF"). Both read as a
+        # failed control check, and a check that cries wolf gets clicked past.
+        #
+        # So a refusal that names the fetch is tried again - four times over
+        # half a minute - and if the document stays out of reach the step still
+        # fails, but says that it could not judge rather than that the evidence
+        # was rejected. Anything the verifier did judge is final on the first
+        # try: nothing that holds or does not hold is ever retried.
+        judge() {
+          local attempt output
+
+          for attempt in 1 2 3 4; do
+            if output="$("$@" 2>&1)"; then
+              printf '%s\n' "$output"
+              return 0
+            fi
+
+            case "$output" in
+              'REFUSE Get "'*) ;;
+              *) printf '%s\n' "$output"; return 1 ;;
+            esac
+
+            printf 'the DID document is out of reach (attempt %s of 4): %s\n' "$attempt" "$output"
+            sleep $((attempt * 5))
+          done
+
+          printf 'REFUSE the DID document could not be reached, so the evidence was never judged\n'
+          return 1
+        }
+
         case "$MODE" in
           dispatch)
             [ -n "$EVIDENCE" ] || { echo "REFUSE the dispatch carried no evidence"; exit 1; }
-            "$(go env GOPATH)/bin/relying" dispatch --evidence "$EVIDENCE" --capability "$CAPABILITY" --repository "$GITHUB_REPOSITORY" --did "$DID"
+            judge "$relying" dispatch --evidence "$EVIDENCE" --capability "$CAPABILITY" --repository "$GITHUB_REPOSITORY" --did "$DID"
             ;;
           pull)
             printf '%s' "$BODY" > "$RUNNER_TEMP/pr-body.txt"
-            "$(go env GOPATH)/bin/relying" pull --body "$RUNNER_TEMP/pr-body.txt" --repository "$GITHUB_REPOSITORY" --did "$DID"
+            judge "$relying" pull --body "$RUNNER_TEMP/pr-body.txt" --repository "$GITHUB_REPOSITORY" --did "$DID"
             ;;
           *) echo "mode must be dispatch or pull"; exit 2 ;;
         esac
