@@ -14,9 +14,14 @@ inputs:
     description: the pull request body (pull); defaults to the event's pull request body
     required: false
   did:
+    # The identity in force: the successor's document, served under /id. /.well-known holds the
+    # document of the first log, final at version 14, and its key-1 never changes; since key-1
+    # moved onto a hardware token (version 4 of the /id log, 5 October 2026) the successor no
+    # longer carries that key-1, so relying no longer accepted it as a successor from there.
+    # /id names both did:webvh identifiers as aliases, so records of either hold.
     description: the DID document that names the gateway's and the principal's keys
     required: false
-    default: https://abovebeyond.ai/.well-known/did.json
+    default: https://abovebeyond.ai/id/did.json
   version:
     description: the control release whose relying command runs
     required: false
